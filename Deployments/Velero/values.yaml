@@ -1,0 +1,33 @@
+# Values for the official Velero chart (installs the Velero server itself).
+# Install this BEFORE the VPS chart:
+#
+#   helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+#   helm upgrade --install velero vmware-tanzu/velero \
+#     -n velero --create-namespace -f Deployments/Velero/values.yaml
+#
+# The bucket, credentials and schedules are set in Deployments/VPS/values.yaml.
+
+# Runs on every node and copies the files from the pods' volumes (Kopia).
+deployNodeAgent: true
+
+# No CSI snapshots on the VPS; volumes are backed up file by file instead.
+snapshotsEnabled: false
+backupsEnabled: true
+
+configuration:
+  # The OVH BackupStorageLocation comes from the VPS chart.
+  backupStorageLocation: []
+  volumeSnapshotLocation: []
+
+# The OVH credentials Secret comes from the VPS chart.
+credentials:
+  useSecret: false
+
+# S3 plugin, also used for OVH Object Storage.
+# Pick the version that matches your Velero version.
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.13.0
+    volumeMounts:
+      - mountPath: /target
+        name: plugins

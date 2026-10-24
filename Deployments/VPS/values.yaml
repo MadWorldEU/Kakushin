@@ -1,0 +1,37 @@
+velero:
+  enabled: true
+
+  # Namespace where Velero runs. Install Velero first with
+  # Deployments/Velero/values.yaml (see the command at the top of that file).
+  namespace: velero
+
+  # OVHcloud S3 credentials (Public Cloud > Object Storage > S3 users).
+  # Do not commit these. Pass them at install time:
+  #   --set velero.credentials.accessKeyId=... --set velero.credentials.secretAccessKey=...
+  # or create the secret yourself (key "cloud", AWS credentials file format)
+  # and set existingSecret.
+  credentials:
+    existingSecret: ""
+    accessKeyId: ""        # injected by the pipeline
+    secretAccessKey: ""    # injected by the pipeline
+
+  storageLocation:
+    name: ovh
+    default: true
+    bucket: "madworld-backups"# your OVH bucket name
+    prefix: vps               # folder inside the bucket
+    region: de                # gra, sbg, rbx, de, uk, waw, bhs, ...
+    # Defaults to https://s3.<region>.io.cloud.ovh.net
+    s3Url: ""
+
+  schedules:
+    # Daily backup of all namespaces, including the files on every PVC.
+    - name: daily
+      schedule: "0 3 * * *"   # every day at 03:00 (cluster time)
+      ttl: 720h0m0s           # keep 30 days
+      includedNamespaces:
+        - "kajiba"
+        - "meishi"
+      excludedNamespaces:
+        - kube-system
+        - velero

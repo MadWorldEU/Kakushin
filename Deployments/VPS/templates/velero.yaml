@@ -1,0 +1,92 @@
+{{- /*
+Velero backups to OVHcloud Object Storage (S3 compatible).
+
+Requires Velero to be installed in the cluster first, with the AWS plugin and
+the node-agent (file-system backup). See the "velero" section in values.yaml.
+
+The data on the stateful pods' volumes (PVCs) is copied file by file with
+Kopia, so it works without CSI volume snapshots.
+*/ -}}
+{{- if .Values.velero.enabled }}
+{{- $v := .Values.velero }}
+{{- $ns := $v.namespace }}
+{{- $secretName := $v.credentials.existingSecret | default "velero-ovh-credentials" }}
+{{- if not $v.credentials.existingSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: velero
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+type: Opaque
+stringData:
+  cloud: |
+    [default]
+    aws_access_key_id={{ required "velero.credentials.accessKeyId is required (or set velero.credentials.existingSecret)" $v.credentials.accessKeyId }}
+    aws_secret_access_key={{ required "velero.credentials.secretAccessKey is required (or set velero.credentials.existingSecret)" $v.credentials.secretAccessKey }}
+{{- end }}
+---
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: {{ $v.storageLocation.name }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: velero
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  provider: aws
+  default: {{ $v.storageLocation.default }}
+  accessMode: ReadWrite
+  objectStorage:
+    bucket: {{ required "velero.storageLocation.bucket is required" $v.storageLocation.bucket }}
+    {{- with $v.storageLocation.prefix }}
+    prefix: {{ . }}
+    {{- end }}
+  credential:
+    name: {{ $secretName }}
+    key: cloud
+  config:
+    region: {{ $v.storageLocation.region | quote }}
+    s3Url: {{ $v.storageLocation.s3Url | default (printf "https://s3.%s.io.cloud.ovh.net" $v.storageLocation.region) | quote }}
+    s3ForcePathStyle: "true"
+    # OVH does not support the newer AWS SDK checksum headers.
+    checksumAlgorithm: ""
+{{- range $v.schedules }}
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: {{ .name }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: velero
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+spec:
+  schedule: {{ .schedule | quote }}
+  useOwnerReferencesInBackup: false
+  template:
+    storageLocation: {{ $v.storageLocation.name }}
+    ttl: {{ .ttl | default "720h0m0s" }}
+    # Back up the PVC files of every pod with Kopia (no CSI snapshots needed).
+    defaultVolumesToFsBackup: true
+    snapshotVolumes: false
+    includedNamespaces:
+      {{- toYaml (.includedNamespaces | default (list "*")) | nindent 6 }}
+    {{- with .excludedNamespaces }}
+    excludedNamespaces:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .includedResources }}
+    includedResources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .labelSelector }}
+    labelSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+{{- end }}
+{{- end }}
