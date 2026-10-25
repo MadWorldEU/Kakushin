@@ -55,7 +55,7 @@ In `Deployments/VPS/values.yaml`, check:
 The pipeline runs:
 
 ```bash
-helm upgrade --install meishi Deployments/VPS \
+helm upgrade --install kakushin Deployments/VPS \
   --values Deployments/VPS/values.yaml \
   --set-string velero.credentials.accessKeyId="$OVH_S3_ACCESS_KEY_ID" \
   --set-string velero.credentials.secretAccessKey="$OVH_S3_SECRET_ACCESS_KEY" \
