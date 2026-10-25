@@ -30,7 +30,6 @@ velero:
       schedule: "0 3 * * *"   # every day at 03:00 (cluster time)
       ttl: 720h0m0s           # keep 30 days
       includedNamespaces:
-        - "kajiba"
         - "meishi"
       excludedNamespaces:
         - kube-system
