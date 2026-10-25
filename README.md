@@ -30,15 +30,16 @@ Wait until the pods are running:
 kubectl -n velero get pods
 ```
 
-### 2. Add the OVH credentials to the pipeline
+### 2. Add the OVH credentials to GitHub
 
-The OVH S3 keys are not stored in Git. Add them as secrets in your CI/CD pipeline:
+The OVH S3 keys are not stored in Git. Add them as secrets to the `vps-production` environment in
+GitHub (repository **Settings → Environments → vps-production → Environment secrets**):
 
-- `OVH_S3_ACCESS_KEY`: the access key of your OVH S3 user
-- `OVH_S3_SECRET_KEY`: the secret key of your OVH S3 user
+- `OVH_S3_ACCESS_KEY_ID`: the access key of your OVH S3 user
+- `OVH_S3_SECRET_ACCESS_KEY`: the secret key of your OVH S3 user
 
-The pipeline passes them to Helm in step 4, and the chart creates the
-`velero-ovh-credentials` Secret from them.
+The deploy workflow (`.github/workflows/deploy-production.yml`) passes them to Helm in step 4, and the
+chart creates the `velero-ovh-credentials` Secret from them.
 
 ### 3. Check the settings
 
@@ -54,9 +55,12 @@ In `Deployments/VPS/values.yaml`, check:
 The pipeline runs:
 
 ```bash
-helm upgrade --install vps Deployments/VPS -n velero \
-  --set velero.credentials.accessKeyId="$OVH_S3_ACCESS_KEY" \
-  --set velero.credentials.secretAccessKey="$OVH_S3_SECRET_KEY"
+helm upgrade --install meishi Deployments/VPS \
+  --values Deployments/VPS/values.yaml \
+  --set-string velero.credentials.accessKeyId="$OVH_S3_ACCESS_KEY_ID" \
+  --set-string velero.credentials.secretAccessKey="$OVH_S3_SECRET_ACCESS_KEY" \
+  --wait \
+  --timeout 5m
 ```
 
 ### 5. Check that backups work

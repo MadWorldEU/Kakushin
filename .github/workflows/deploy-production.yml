@@ -1,0 +1,65 @@
+name: Deploy production
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 #v5.0.1
+
+      - name: Dry run
+        run: |
+          helm template meishi Deployments/VPS \
+            --values Deployments/VPS/values.yaml > /dev/null
+  
+  deployment:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: vps-production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 #v5.0.1
+
+      - name: Write kubeconfig
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
+        run: |
+          mkdir -p ~/.kube
+          echo "$KUBECONFIG_CONTENT" | base64 -d  > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Install Velero
+        run: |
+          helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+          helm repo update
+          helm upgrade --install velero vmware-tanzu/velero \
+            -n velero --create-namespace -f Deployments/Velero/values.yaml
+
+      - name: Deploy Kakushin
+        env:
+          OVH_S3_ACCESS_KEY_ID: ${{ secrets.OVH_S3_ACCESS_KEY_ID }}
+          OVH_S3_SECRET_ACCESS_KEY: ${{ secrets.OVH_S3_SECRET_ACCESS_KEY }}
+        run: |
+          helm upgrade --install meishi Deployments/VPS \
+            --values Deployments/VPS/values.yaml \
+            --set-string velero.credentials.accessKeyId="$OVH_S3_ACCESS_KEY_ID" \
+            --set-string velero.credentials.secretAccessKey="$OVH_S3_SECRET_ACCESS_KEY" \
+            --wait \
+            --timeout 5m
