@@ -23,8 +23,10 @@ jobs:
 
       - name: Dry run
         run: |
-          helm template meishi Deployments/VPS \
-            --values Deployments/VPS/values.yaml > /dev/null
+          helm template kakushin Deployments/VPS \
+            --values Deployments/VPS/values.yaml \
+            --set clusterIssuer.enabled=true \
+            --set-string velero.credentials.existingSecret="dry-run" > /dev/null
   
   deployment:
     if: github.event_name == 'push'
