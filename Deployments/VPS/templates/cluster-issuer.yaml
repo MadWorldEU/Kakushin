@@ -1,0 +1,17 @@
+{{- if .Values.clusterIssuer.enabled }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.clusterIssuer.name }}
+spec:
+  acme:
+    email: {{ .Values.clusterIssuer.email | quote }}
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      # Unique per issuer, because Meishi and Kajiba already use "lets-encrypt-prod" for their ACME account
+      name: {{ .Values.clusterIssuer.name }}-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
+{{- end }}

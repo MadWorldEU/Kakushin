@@ -1,6 +1,17 @@
 namespace: kakushin
 imagePullPolicy: "IfNotPresent"
 
+clusterIssuer:
+  enabled: false
+  name: "letsencrypt-kakushin"
+  # Production overrides it with --set clusterIssuer.email=... from the CLUSTER_ISSUER_EMAIL secret
+  email: "info@kakushin.dev"
+
+ingress:
+  className: "traefik"
+  domain: "kakushin.dev"
+  tlsSecret: "kakushin-tls"
+
 # Database for Keycloak
 postgres:
   name: postgres
@@ -32,6 +43,30 @@ postgres:
     hookTimeout: "2m"
     # Max size of the pg_dump file; must fit within postgres.resources.limits.ephemeral-storage
     dumpSizeLimit: "256Mi"
+
+keycloak:
+  name: keycloak
+  image:
+    repository: "quay.io/keycloak/keycloak"
+    tag: "26.4"
+  adminUsername: "admin"
+  # Demo password for local development only. Production overrides it with --set keycloak.adminPassword=...
+  # from the KEYCLOAK_ADMIN_PASSWORD secret in the deploy workflow.
+  adminPassword: "admin-local-dev"
+  servicePort: 8080
+  ports:
+    http: 8080
+    # Keycloak serves the /health endpoints on the management port
+    health: 9000
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+      ephemeral-storage: "128Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+      ephemeral-storage: "512Mi"
 
 velero:
   enabled: true

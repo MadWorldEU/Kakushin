@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kakushin-ingress-auth
+  namespace: {{ .Values.namespace }}
+  annotations:
+    {{- if .Values.clusterIssuer.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer.name | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - secretName: {{ .Values.ingress.tlsSecret }}-auth
+      hosts:
+        - authentication.{{ .Values.ingress.domain }}
+  rules:
+    - host: authentication.{{ .Values.ingress.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.keycloak.name }}
+                port:
+                  number: {{ .Values.keycloak.servicePort }}
