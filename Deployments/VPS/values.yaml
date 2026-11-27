@@ -1,4 +1,37 @@
 namespace: kakushin
+imagePullPolicy: "IfNotPresent"
+
+# Database for Keycloak
+postgres:
+  name: postgres
+  port: 5432
+  image:
+    # Keycloak 26 supports PostgreSQL 13 to 17
+    repository: "postgres"
+    tag: "17"
+  username: "keycloak"
+  # Demo password for local development only. Production overrides it with --set postgres.password=...
+  # from the POSTGRES_PASSWORD secret in the deploy workflow.
+  password: "keycloak-local-dev"
+  database: "keycloak"
+  storageSize: "1Gi"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+      ephemeral-storage: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+      # Also holds the pg_dump for Velero (postgres.backup.dumpSizeLimit)
+      ephemeral-storage: "512Mi"
+  # Prepares the database for Velero backups; without Velero these annotations have no effect.
+  backup:
+    enabled: true
+    # Max time the pg_dump (backup) and pg_restore (restore) hooks may take before they fail
+    hookTimeout: "2m"
+    # Max size of the pg_dump file; must fit within postgres.resources.limits.ephemeral-storage
+    dumpSizeLimit: "256Mi"
 
 velero:
   enabled: true
