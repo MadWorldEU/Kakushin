@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.keycloak.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.keycloak.name }}
+type: Opaque
+stringData:
+  KC_BOOTSTRAP_ADMIN_USERNAME: {{ .Values.keycloak.adminUsername | quote }}
+  KC_BOOTSTRAP_ADMIN_PASSWORD: {{ .Values.keycloak.adminPassword | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.keycloak.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.keycloak.name }}
+spec:
+  selector:
+    app: {{ .Values.keycloak.name }}
+  ports:
+    - name: http
+      port: {{ .Values.keycloak.servicePort }}
+      targetPort: http
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.keycloak.name }}-discovery
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.keycloak.name }}
+spec:
+  selector:
+    app: {{ .Values.keycloak.name }}
+  publishNotReadyAddresses: true
+  clusterIP: None
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.keycloak.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.keycloak.name }}
+spec:
+  serviceName: {{ .Values.keycloak.name }}-discovery
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.keycloak.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.keycloak.name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: {{ .Values.keycloak.name }}
+          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args: ["start"]
+          envFrom:
+            # KC_BOOTSTRAP_ADMIN_USERNAME and KC_BOOTSTRAP_ADMIN_PASSWORD
+            - secretRef:
+                name: {{ .Values.keycloak.name }}
+          env:
+            - name: KC_PROXY_HEADERS
+              value: "xforwarded"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_CACHE
+              value: ispn
+            - name: KC_CACHE_STACK
+              value: kubernetes
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: JAVA_OPTS_APPEND
+              value: '-Djgroups.dns.query="{{ .Values.keycloak.name }}-discovery" -Djgroups.bind.address=$(POD_IP)'
+            # The database credentials come from the PostgreSQL secret (postgresql.yaml)
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL_HOST
+              value: {{ .Values.postgres.name }}
+            - name: KC_DB_URL_PORT
+              value: {{ .Values.postgres.port | quote }}
+            - name: KC_DB_URL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.name }}
+                  key: POSTGRES_DB
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.name }}
+                  key: POSTGRES_USER
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.name }}
+                  key: POSTGRES_PASSWORD
+          ports:
+            - name: http
+              containerPort: {{ .Values.keycloak.ports.http }}
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: {{ .Values.keycloak.ports.health }}
+            periodSeconds: 1
+            failureThreshold: 600
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: {{ .Values.keycloak.ports.health }}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: {{ .Values.keycloak.ports.health }}
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: {{ .Values.keycloak.resources.requests.cpu | quote }}
+              memory: {{ .Values.keycloak.resources.requests.memory | quote }}
+              ephemeral-storage: {{ index .Values.keycloak.resources.requests "ephemeral-storage" | quote }}
+            limits:
+              cpu: {{ .Values.keycloak.resources.limits.cpu | quote }}
+              memory: {{ .Values.keycloak.resources.limits.memory | quote }}
+              ephemeral-storage: {{ index .Values.keycloak.resources.limits "ephemeral-storage" | quote }}

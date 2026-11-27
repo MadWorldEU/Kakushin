@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.postgres.name }}
+type: Opaque
+stringData:
+  POSTGRES_USER: {{ .Values.postgres.username | quote }}
+  POSTGRES_PASSWORD: {{ .Values.postgres.password | quote }}
+  POSTGRES_DB: {{ .Values.postgres.database | quote }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.postgres.name }}
+spec:
+  serviceName: {{ .Values.postgres.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.postgres.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.postgres.name }}
+      {{- if .Values.postgres.backup.enabled }}
+      annotations:
+        # The data volume is a hostPath volume (local-path provisioner), which Velero can't back up.
+        # Velero backs up a pg_dump in the postgres-backup volume instead.
+        backup.velero.io/backup-volumes: postgres-backup
+        backup.velero.io/backup-volumes-excludes: postgres-data
+        # Writes a consistent dump of the database before Velero copies the backup volume
+        pre.hook.backup.velero.io/container: {{ .Values.postgres.name }}
+        pre.hook.backup.velero.io/command: '["sh", "-c", "pg_dump -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -Fc -f /var/lib/postgresql/backup/keycloak.dump.tmp && mv /var/lib/postgresql/backup/keycloak.dump.tmp /var/lib/postgresql/backup/keycloak.dump"]'
+        pre.hook.backup.velero.io/on-error: Fail
+        pre.hook.backup.velero.io/timeout: {{ .Values.postgres.backup.hookTimeout | quote }}
+        # After a Velero restore, loads the dump into the new (empty) database
+        post.hook.restore.velero.io/container: {{ .Values.postgres.name }}
+        post.hook.restore.velero.io/command: '["sh", "-c", "pg_restore -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" --clean --if-exists --no-owner /var/lib/postgresql/backup/keycloak.dump"]'
+        post.hook.restore.velero.io/wait-for-ready: "true"
+        post.hook.restore.velero.io/on-error: Fail
+        post.hook.restore.velero.io/exec-timeout: {{ .Values.postgres.backup.hookTimeout | quote }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: {{ .Values.postgres.name }}
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.postgres.port }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.postgres.name }}
+          env:
+            # A subdirectory, because the root of a volume can contain files (lost+found) that make initdb fail
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: {{ .Values.postgres.resources.requests.cpu | quote }}
+              memory: {{ .Values.postgres.resources.requests.memory | quote }}
+              ephemeral-storage: {{ index .Values.postgres.resources.requests "ephemeral-storage" | quote }}
+            limits:
+              cpu: {{ .Values.postgres.resources.limits.cpu | quote }}
+              memory: {{ .Values.postgres.resources.limits.memory | quote }}
+              ephemeral-storage: {{ index .Values.postgres.resources.limits "ephemeral-storage" | quote }}
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            {{- if .Values.postgres.backup.enabled }}
+            - name: postgres-backup
+              mountPath: /var/lib/postgresql/backup
+            {{- end }}
+      {{- if .Values.postgres.backup.enabled }}
+      volumes:
+        # Holds the pg_dump that Velero backs up; counts towards the pod's ephemeral storage
+        - name: postgres-backup
+          emptyDir:
+            sizeLimit: {{ .Values.postgres.backup.dumpSizeLimit | quote }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storageSize | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgres.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.postgres.name }}
+spec:
+  selector:
+    app: {{ .Values.postgres.name }}
+  ports:
+    - port: {{ .Values.postgres.port }}
+      targetPort: {{ .Values.postgres.port }}
+      protocol: TCP
